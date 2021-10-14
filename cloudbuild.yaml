@@ -7,7 +7,7 @@ steps:
     - name: 'build_cache'
       path: '/build_cache'
 #Android build and distribute with gradle
-- name: 'gcr.io/$PROJECT_ID/android-builder'
+- name: 'gcr.io/$PROJECT_ID/android'
   args: ['gradle-build','${_ANDROID_SDK_LICENSE}','assembleDebug']
   id: gradle_build
   waitFor:
