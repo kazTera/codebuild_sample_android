@@ -1,26 +1,37 @@
-# cloudbuild.yaml
-
 steps:
 
-- name: eu.gcr.io/$PROJECT_ID/cloudbuild-android
-  id: 'docker-pull'
-  args: ['cp', '-a', '.', '/persistent_volume']
+#
+# Get a build number
+#
+# Cloud build doesn't use incrementing build numbers, by default, but they're often
+# useful for Android builds, so these steps will read/increment/store a build number.
+#
+# Download the config bucket, which stores the build number.
+- name: 'gcr.io/cloud-builders/gsutil'
+  id: copy_config
+  waitFor: ['-']  # The '-' indicates that this step begins immediately.
+  # we use rsync and not cp so that this step doesn't fail the first time it's run
+  args: ['rsync', 'gs://${_CONFIG_BUCKET}/', '/config']
   volumes:
-  - name: data
-    path: /persistent_volume
+  - name: 'config'
+    path: '/config'
 
-- name: gcr.io/cloud-builders/docker
-  id: 'gradle-build'
+# Compound bash command to:
+#   1. read a version
+#   2. increment it
+#   3. write it back to the version file
+#   4. write it to the `build_env` file for use later
+- name: 'gcr.io/$PROJECT_ID/tar'
+  id: setup_config
+  entrypoint: 'bash'
+  args: 
+  - '-c'
+  - |
+    cat /config/buildnum | awk '{$1=1+$1;print}' | tee /config/buildnum | awk '{print "BUILD_NUM="$1}'
+  waitFor: ['copy_config']
   volumes:
-  - name: data
-    path: /persistent_volume
-  args: ['run', '-v', 'data:/workspace', '--rm', 'eu.gcr.io/$PROJECT_ID/cloudbuild', '/bin/sh', '-c', 'cd /workspace && ./gradlew mobile:assembleDebug && mv mobile/build/outputs/apk/debug/mobile-debug.apk mobile/build/outputs/apk/debug/$REPO_NAME-$SHORT_SHA-debug.apk && ls -la mobile/build/outputs/apk/debug/$REPO_NAME-$SHORT_SHA-debug.apk']
+  - name: 'config'
+    path: '/config'
 
-- name: gcr.io/cloud-builders/gsutil
-  id: 'publish-gsutil'
-  args: ['cp', '/persistent_volume/mobile/build/outputs/apk/debug/$REPO_NAME-$SHORT_SHA-debug.apk', 'gs://eu.artifacts.$PROJECT_ID.appspot.com/android/']
-  volumes:
-  - name: data
-    path: /persistent_volume
+timeout: 1800s
 
-timeout: 1200s
