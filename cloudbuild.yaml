@@ -1,23 +1,31 @@
-#
-# Build the project
-#
-# In order to get the build number that we calculated earlier, we need to source the 
-# build_environment.sh file *in each step it's needed* before running our build.
-#
-- name: 'gcr.io/$PROJECT_ID/android:28'
-  id: build
-  args: ["./gradlew", ":app:assembleRelease", ":app:assembleDebug", "assembleAndroidTest"]
-  <<: &env
-    env:
-    - 'TERM=dumb'
-    - 'JAVA_TOOL_OPTIONS="-Xmx4g"'
-    - 'GRADLE_USER_HOME=/build_cache/.gradle'
-    - 'GRADLE_OPTS="-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Dorg.gradle.workers.max=8 -Dkotlin.incremental=false"'
-    - 'BRANCH_NAME=$BRANCH_NAME'
-  waitFor: ['decrypt_secrets', 'extract_build_cache']
+steps:
+#Copy the build cache locally, if it exists.
+- name: 'gcr.io/cloud-builders/gsutil'
+  args: ['rsync', 'gs://${_ANDROID_BUILD_CACHE}/', '/build_cache']
+  id: copy_build_cache_local
   volumes:
-  - name: 'build_cache'
-    path: '/build_cache'
-
-timeout: 1800s
-
+    - name: 'build_cache'
+      path: '/build_cache'
+#Android build and distribute with gradle
+- name: 'gcr.io/$PROJECT_ID/android-builder'
+  args: ['gradle-build','${_ANDROID_SDK_LICENSE}','assembleDebug']
+  id: gradle_build
+  waitFor:
+    - copy_build_cache_local
+  volumes:
+    - name: 'build_cache'
+      path: '/build_cache'
+#Copy debug apk to cloud storage bucket
+- name: 'gcr.io/cloud-builders/gsutil'
+  args: ['-q','cp', 'app/build/outputs/apk/debug/app-debug.apk', 'gs://${_DEBUG_BUILD_BUCKET}/$PROJECT_ID-$BRANCH_NAME-$SHORT_SHA-debug.apk']
+  waitFor:
+    - gradle_build
+#Repopulate the build-cache
+- name: 'gcr.io/cloud-builders/gsutil'
+  args: ['-q','cp', '/build_cache/dot_gradle.zip', 'gs://${_ANDROID_BUILD_CACHE}']
+  waitFor:
+    - gradle_build
+  volumes:
+    - name: 'build_cache'
+      path: '/build_cache'
+timeout: 1200s
