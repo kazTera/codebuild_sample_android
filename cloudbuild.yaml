@@ -1,22 +1,23 @@
-steps:
-
 #
-# Compound bash command to:
-#   1. read a version
-#   2. increment it
-#   3. write it back to the version file
-#   4. write it to the `build_env` file for use later
-- name: 'gcr.io/$PROJECT_ID/tar'
-  id: setup_config
-  entrypoint: 'bash'
-  args: 
-  - '-c'
-  - |
-    cat /config/buildnum | awk '{$1=1+$1;print}' | tee /config/buildnum | awk '{print "BUILD_NUM="$1}'
-  waitFor: ['copy_config']
+# Build the project
+#
+# In order to get the build number that we calculated earlier, we need to source the 
+# build_environment.sh file *in each step it's needed* before running our build.
+#
+- name: 'gcr.io/$PROJECT_ID/android:28'
+  id: build
+  args: ["./gradlew", ":app:assembleRelease", ":app:assembleDebug", "assembleAndroidTest"]
+  <<: &env
+    env:
+    - 'TERM=dumb'
+    - 'JAVA_TOOL_OPTIONS="-Xmx4g"'
+    - 'GRADLE_USER_HOME=/build_cache/.gradle'
+    - 'GRADLE_OPTS="-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Dorg.gradle.workers.max=8 -Dkotlin.incremental=false"'
+    - 'BRANCH_NAME=$BRANCH_NAME'
+  waitFor: ['decrypt_secrets', 'extract_build_cache']
   volumes:
-  - name: 'config'
-    path: '/config'
+  - name: 'build_cache'
+    path: '/build_cache'
 
 timeout: 1800s
 
